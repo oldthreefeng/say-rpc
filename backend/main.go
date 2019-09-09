@@ -1,59 +1,55 @@
 package main
 
 import (
-	pb "github.com/oldthreefeng/say-rpc/api"
 	"flag"
 	"fmt"
-	log "github.com/sirupsen/logrus"
-	"golang.org/x/net/context"
-	"google.golang.org/grpc"
 	"io/ioutil"
 	"net"
-	"os"
 	"os/exec"
+
+	pb "github.com/oldthreefeng/say-rpc/api"
+	"github.com/sirupsen/logrus"
+	"golang.org/x/net/context"
+	"google.golang.org/grpc"
 )
 
 func main() {
-	port := flag.Int("p", 8080, "prot to listen")
+	port := flag.Int("p", 8080, "port to listen to")
 	flag.Parse()
+
+	logrus.Infof("listening to port %d", *port)
 	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", *port))
 	if err != nil {
-		log.Printf("could not list to port %d:%v", *port, err)
+		logrus.Fatalf("could not listen to port %d: %v", *port, err)
 	}
-	cmd := exec.Command("flite", "-t", os.Args[1], "output.wav")
+
 	s := grpc.NewServer()
 	pb.RegisterTextToSpeechServer(s, server{})
-	err := s.Server(lis)
+	err = s.Serve(lis)
 	if err != nil {
-		log.Fatalf("cloud not server: %v", err)
-	}
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		log.Fatal(err)
+		logrus.Fatalf("could not serve: %v", err)
 	}
 }
 
-type server struct {
-}
+type server struct{}
 
 func (server) Say(ctx context.Context, text *pb.Text) (*pb.Speech, error) {
 	f, err := ioutil.TempFile("", "")
 	if err != nil {
-		return nil, fmt.Errorf("cloud not create tmp file : %v", err)
+		return nil, fmt.Errorf("could not create tmp file: %v", err)
 	}
 	if err := f.Close(); err != nil {
-		return nil, fmt.Errorf("cloud not close tmp file : %v", err)
+		return nil, fmt.Errorf("could not close %s: %v", f.Name(), err)
 	}
 
 	cmd := exec.Command("flite", "-t", text.Text, "-o", f.Name())
-
 	if data, err := cmd.CombinedOutput(); err != nil {
-		return nil, fmt.Errorf("file failed : %s", data)
+		return nil, fmt.Errorf("flite failed: %s", data)
 	}
+
 	data, err := ioutil.ReadFile(f.Name())
 	if err != nil {
-		return nil, fmt.Errorf("could not read tmp file : %s", data)
+		return nil, fmt.Errorf("could not read tmp file: %v", err)
 	}
 	return &pb.Speech{Audio: data}, nil
 }
